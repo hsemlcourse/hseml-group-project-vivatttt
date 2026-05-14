@@ -37,10 +37,10 @@
 ├── notebooks
 │   ├── 01_eda.ipynb            # EDA
 │   ├── 02_baseline.ipynb       # Baseline-модель
-│   └── 03_experiments.ipynb    # Эксперименты и ablation study
+│   └── 03_experiments.ipynb    # Эксперименты, тюнинг, финальная модель
 ├── presentation                # Презентация для защиты
 ├── report
-│   ├── images                  # Изображения для отчёта
+│   ├── experiments.csv         # Сводная таблица экспериментов (этап 2)
 │   └── report.md               # Финальный отчёт
 ├── src
 │   ├── preprocessing.py        # Предобработка данных
@@ -62,6 +62,7 @@ pip install -r requirements.txt
 
 jupyter notebook notebooks/01_eda.ipynb
 jupyter notebook notebooks/02_baseline.ipynb
+jupyter notebook notebooks/03_experiments.ipynb
 
 pytest -q
 ruff check src/ --line-length 120
@@ -73,15 +74,25 @@ ruff check src/ --line-length 120
 
 ## Результаты
 
-Сплит: stratified 70/15/15 (train/val/test), `random_state=42`.
+Сплит: stratified 70/15/15 (train/val/test), `random_state=42`. Метрики из этапа 2 — 5-fold StratifiedKFold CV на train+val. Test используется один раз — для финальной модели.
 
-| Модель           | Val Accuracy | Val F1-macro | Комментарий                              |
-|------------------|--------------|--------------|------------------------------------------|
-| Baseline LogReg  | 0.68        | 0.69        | LogisticRegression «из коробки»          |
-| KNN (k=15)       | 0.72        | 0.72        | сильно лучше baseline                    |
-| RandomForest     | 0.71        | 0.70        | переобучается, нужен тюнинг (этап 2)     |
+| Модель                      | CV F1-macro | Комментарий                                   |
+|-----------------------------|-------------|-----------------------------------------------|
+| Baseline LogReg             | 0.672       | «из коробки», точка отсчёта                   |
+| KNN (k=15)                  | 0.709       | лучше baseline                                |
+| SVM (RBF)                   | 0.712       | стандартные дефолты                           |
+| HistGradientBoosting        | 0.706       | дефолтные гиперпараметры                      |
+| RandomForest (300 деревьев) | 0.721       | дефолтные гиперпараметры                      |
+| XGBoost                     | 0.719       | tree_method=hist, default                     |
+| **RandomForest tuned**      | **0.738**   | RandomizedSearchCV (25 итер.), финальная      |
+| HistGradientBoosting tuned  | 0.733       | RandomizedSearchCV                            |
+| SVM tuned                   | 0.718       | GridSearchCV по C/gamma                       |
 
-Финальная модель и тюнинг - этап 2.
+**Финальная модель:** `RandomForestClassifier(n_estimators=400, max_depth=16, max_features='sqrt')` — обучена на train+val и сохранена в `models/final_model.joblib`.
+
+**Test-метрики:** accuracy = 0.738, F1-macro = 0.742, F1-weighted = 0.738.
+
+Полная таблица всех экспериментов (включая imputer median vs KNN, outlier quantile vs IQR, PCA при разном `n_components`): [`report/experiments.csv`](report/experiments.csv). Подробности — в [`notebooks/03_experiments.ipynb`](notebooks/03_experiments.ipynb).
 
 ## Отчёт
 

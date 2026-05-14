@@ -4,7 +4,7 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
+from sklearn.impute import KNNImputer, SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -115,16 +115,32 @@ def remove_outliers(df: pd.DataFrame, cols: list[str], q: float = 0.995) -> pd.D
     return df
 
 
-def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+def iqr_clip(df: pd.DataFrame, cols: list[str], k: float = 1.5) -> pd.DataFrame:
+    df = df.copy()
+    for c in cols:
+        if c not in df.columns:
+            continue
+        s = df[c].dropna()
+        if s.empty:
+            continue
+        q1, q3 = s.quantile(0.25), s.quantile(0.75)
+        iqr = q3 - q1
+        lo, hi = q1 - k * iqr, q3 + k * iqr
+        df[c] = df[c].clip(lower=lo, upper=hi)
+    return df
+
+
+def clean_data(df: pd.DataFrame, outlier_strategy: str = "quantile") -> pd.DataFrame:
     df = df.drop_duplicates(subset=["PlanetIdentifier"]).reset_index(drop=True)
     df = add_target(df)
     df = df.dropna(subset=[TARGET_COL]).reset_index(drop=True)
     df = df.drop(columns=LEAKAGE_COLS + DROP_COLS, errors="ignore")
     df = add_engineered_features(df)
-    df = remove_outliers(
-        df,
-        cols=["PeriodDays", "SemiMajorAxisAU", "DistFromSunParsec", "EquilibriumProxy"],
-    )
+    cols = ["PeriodDays", "SemiMajorAxisAU", "DistFromSunParsec", "EquilibriumProxy"]
+    if outlier_strategy == "iqr":
+        df = iqr_clip(df, cols=cols, k=3.0)
+    else:
+        df = remove_outliers(df, cols=cols)
     return df
 
 
@@ -157,10 +173,14 @@ def stratified_split(
     return X_train, X_val, X_test, y_train, y_val, y_test
 
 
-def build_preprocessor() -> ColumnTransformer:
+def build_preprocessor(numeric_imputer: str = "median", knn_neighbors: int = 5) -> ColumnTransformer:
+    if numeric_imputer == "knn":
+        num_imp = KNNImputer(n_neighbors=knn_neighbors)
+    else:
+        num_imp = SimpleImputer(strategy="median")
     numeric_pipe = Pipeline(
         steps=[
-            ("imputer", SimpleImputer(strategy="median")),
+            ("imputer", num_imp),
             ("scaler", StandardScaler()),
         ]
     )
@@ -183,9 +203,10 @@ def prepare_data(
     test_size: float = 0.15,
     val_size: float = 0.15,
     random_state: int = 42,
+    outlier_strategy: str = "quantile",
 ):
     df = load_raw_data(raw_path)
-    df_clean = clean_data(df)
+    df_clean = clean_data(df, outlier_strategy=outlier_strategy)
     X, y = split_features_target(df_clean)
     return stratified_split(X, y, test_size, val_size, random_state)
 
